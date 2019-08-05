@@ -42,6 +42,6 @@ steps:
 - task: GitHubRelease@0
   condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
   inputs:
-    gitHubConnection: jpathy
+    gitHubConnection: github_Release
     repositoryName: jpathy/tmdb-dumper
     assets: $(Build.ArtifactStagingDirectory)/*.tar.gz
