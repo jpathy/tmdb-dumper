@@ -1,4 +1,4 @@
-![Build Status](https://dev.azure.com/lazycons/tmdb-dumper/_apis/build/status/jpathy.tmdb-dumper?branchName=master)](https://dev.azure.com/lazycons/tmdb-dumper/_build/latest?definitionId=2&branchName=master)
+[![Build Status](https://dev.azure.com/lazycons/tmdb-dumper/_apis/build/status/jpathy.tmdb-dumper?branchName=master)](https://dev.azure.com/lazycons/tmdb-dumper/_build/latest?definitionId=2&branchName=master)
 
 # tmdb-dumper
 External dependency: `sqlite3`.
