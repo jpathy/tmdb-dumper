@@ -178,17 +178,17 @@ rateLimitedhttpLbs settings manager req = do
           let retry_in =
                 maybe (minRetryDelay settings) (max (minRetryDelay settings)) $
                 getRetryAfter resp
-          modifyIORef'
+          atomicModifyIORef'
             globalRateLimit
-            (\x -> updateRateLimit x (Just $ RateLimit 0 (now + retry_in)))
+            (\x -> (updateRateLimit x (Just $ RateLimit 0 (now + retry_in)), ()))
           (threadDelay . round . (* 1E6)) retry_in
           if count > 0
             then fetchResponse (count - 1)
             else throwM $ APIException req APIRetryOverLimit
         else do
-          modifyIORef'
+          atomicModifyIORef'
             globalRateLimit
-            (\x -> updateRateLimit x $ getRateLimit resp)
+            (\x -> (updateRateLimit x $ getRateLimit resp, ()))
           return resp
     -- This is number of microseconds.
     requestDelay :: Integral a => RateLimit -> POSIXTime -> Maybe a
@@ -248,7 +248,7 @@ fetchYdayMovieIdsC = getFileStream .| transPipe liftIO ungzip .| parseIdC
       path <- liftIO fmtYdayFileName
       req <- liftIO $ HC.parseRequest (tmdbExportURL ++ path)
       logWithoutLoc "" LevelDebug $
-        "Getting Movie ids from: " <> toLogStr (HC.path req)
+        "Getting Movie ids from: " <> show (HC.getUri req)
       httpSource' req $ \resp ->
         if statusIsSuccessful (HC.responseStatus resp)
           then HC.responseBody resp

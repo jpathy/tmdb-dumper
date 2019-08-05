@@ -2,7 +2,6 @@
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiWayIf                 #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
 
 -- |
 -- Provides High level functions as needed for the @tmdb-dumper@ program to update\/query DB from [TheMovieDB](https://themoviedb.org) API.
