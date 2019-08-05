@@ -1,0 +1,47 @@
+trigger:
+  tags:
+    include:
+    - v*
+  branches:
+    include:
+    - master
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  BASH_ENV: "$HOME/.nix-profile/etc/profile.d/nix.sh" # For nix tools to get added to path.
+
+steps:
+- bash: |
+    curl https://nixos.org/nix/install | sh
+  displayName: 'Installing nix package manager'
+
+- bash: |
+    nix-env -iA cachix -f https://cachix.org/api/v1/install
+    cachix use static-haskell-nix
+  displayName: 'Setting up cachix for static-haskell-nix'
+
+- bash: |
+    OUT_PATH=`$(nix-build -v --no-link -A fullBuildScript)`
+    if [ "$?" -ne 0 ]; then 
+      echo "##vso[task.logissue type=error] Failed to Build"
+      exit 1
+    fi
+    echo "Build Output: ${OUT_PATH}"
+    echo "##vso[task.setvariable variable=GIT_TAG;]$(git tag --points-at HEAD)"
+    echo "##vso[task.setvariable variable=OUT_PATH;]${OUT_PATH}"
+  displayName: 'Running nix-build'
+
+- task: ArchiveFiles@2
+  inputs:
+    rootFolderOrFile: $(OUT_PATH)/bin/tmdb-dumper
+    archiveType: tar
+    archiveFile: $(Build.ArtifactStagingDirectory)/tmdb-dumper.exe-$(GIT_TAG).$(Agent.OS).$(Agent.OSArchitecture).tar.gz
+
+- task: GitHubRelease@0
+  condition: startsWith(variables['Build.SourceBranch'], 'refs/tags/v')
+  inputs:
+    gitHubConnection: github_Release
+    repositoryName: jpathy/tmdb-dumper
+    assets: $(Build.ArtifactStagingDirectory)/*.tar.gz
