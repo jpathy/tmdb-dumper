@@ -47,9 +47,9 @@ instance FromJSON Movie where
       v .:? "genres" .!= [] <*>
       extractAll v "spoken_languages" "iso_639_1" <*>
       extractAll v "production_countries" "iso_3166_1" <*>
-      v .: "runtime" <*>
-      v .: "budget" <*>
-      v .: "revenue"
+      v .: "runtime" .!= 0 <*>
+      v .: "budget" .!= 0 <*>
+      v .: "revenue" .!= 0
     where
       str2tup :: String -> Maybe (Char, Char)
       str2tup (x:y:_) = Just (x, y)

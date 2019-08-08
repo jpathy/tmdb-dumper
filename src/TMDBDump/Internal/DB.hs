@@ -15,6 +15,7 @@ module TMDBDump.Internal.DB
 
 import           Control.Monad           (when)
 import           Control.Monad.IO.Class
+import           Control.Monad.Logger
 import           Data.Aeson
 import           Data.Aeson.Text         (encodeToLazyText)
 import qualified Data.ByteString.Lazy    as LB
@@ -142,14 +143,32 @@ hasMovie m_id conn = do
   return b
 
 -- | Insert/update movie records in DB by parsing the response bodies.
-insertMovies :: Traversable t => t LB.ByteString -> Connection -> IO ()
-insertMovies bs conn = do
-  let v =
-        (\s ->
-           (,) <$> decode' s <*>
-           (eitherToMaybe . TE.decodeUtf8' . LB.toStrict) s) <$>
-        bs
-  withImmediateTransaction conn $ forM_ v (mapM (uncurry insert))
+insertMovies ::
+     (MonadLoggerIO m, Traversable t)
+  => t (Int, LB.ByteString)
+  -> Connection
+  -> m ()
+insertMovies inp conn = do
+  let res = -- map ByteString to Maybe (Movie, ByteString)
+        (fmap . fmap)
+          (\s ->
+             (,) <$> decode' s <*>
+             (eitherToMaybe . TE.decodeUtf8' . LB.toStrict) s)
+          inp
+  logFn <- askLoggerIO
+  liftIO $
+    withImmediateTransaction conn $
+    forM_
+      res
+      (\(m_id, v) ->
+         case v of
+           Nothing ->
+             logFn
+               defaultLoc
+               ""
+               LevelWarn
+               ("Failed to decode response for movie id: " <> toLogStr m_id)
+           Just v' -> uncurry insert v')
   where
     insert :: Movie -> T.Text -> IO ()
     insert m json_response =

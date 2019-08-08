@@ -65,7 +65,7 @@ import           TMDBDump.Internal.Logger
 data Settings = Settings
   { logVerbosity           :: Int                -- ^ Verbosity of log output.
   , logNoTerminal          :: Bool               -- ^ Disable terminal support(No color/sticky) for log output.
-  , staleUpdateThresold    :: Int                -- ^ Maximum stale-age of data before we fetch everything.
+  , staleUpdateThresold    :: Int                -- ^ Maximum stale-age of data in days before we fetch everything.
   , concurrentRequestLimit :: Int                -- ^ Max concurrent TMDB API requests.
   , insertBatchLimit       :: Int                -- ^ Batch limit for sqlite inserts.
   , apiKey                 :: ApiKey             -- ^ TMDB Api Key. See <https://www.themoviedb.org/settings/api> to get one.
@@ -139,38 +139,38 @@ updateMovies force = do
     fetchMovieGenres >>= mapM_ (liftIO . (`DB.updateMovieGenres` conn)) -- Update movie genres.
     logInfoN "Done."
     logInfoN "Updating Movie records.."
-    state <- liftIO $ newMVar $ (0 :: Int, Seq.empty) -- state ~ (counter, batch)
+    state <- liftIO $ newMVar (0 :: Int, Seq.empty) -- state ~ (counter, batch)
     logStickyN "Updated 0 Movie records"
     flip finally (cleanUp state conn) $
-      runConduit $ do
-        flip DB.updateMovies conn $ \status ->
-          sourceC conn status (toInteger $ staleUpdateThresold settings) .|
-          fetchMoviesC (concurrentRequestLimit settings) .|
-          mapM_C
-            (\bs ->
-               let batchLimit = insertBatchLimit settings
-                in withRunInIO $ \run -> do
-                     modifyMVar_
-                       state
-                       (\(!cnt, !bs_seq) ->
-                          if Seq.length bs_seq == batchLimit
-                            then do
-                              let !cnt' = cnt + batchLimit
-                              DB.insertMovies bs_seq conn
-                              run $
-                                logSticky "" $
+      runConduit $
+      flip DB.updateMovies conn $ \status ->
+        sourceC conn status (toInteger $ staleUpdateThresold settings) .|
+        fetchMoviesC (concurrentRequestLimit settings) .|
+        mapM_C
+          (\v ->
+             let batchLimit = insertBatchLimit settings
+              in withRunInIO $ \run ->
+                   modifyMVar_
+                     state
+                     (\(!cnt, !v_seq) ->
+                        if Seq.length v_seq == batchLimit
+                          then do
+                            let !cnt' = cnt + batchLimit
+                            run $ do
+                              DB.insertMovies v_seq conn
+                              logSticky "" $
                                 "Updated " <> toLogStr cnt' <> " Movie records"
-                              return (cnt', Seq.empty)
-                            else let !nbs = (Seq.|>) bs_seq bs -- force apply.
-                                  in return (cnt, nbs)))
+                            return (cnt', Seq.empty)
+                          else let !nv = (Seq.|>) v_seq v -- force apply.
+                                in return (cnt, nv)))
     logInfoN "Movie table update complete."
   where
     -- | Flush batch to DB and refresh log.
     cleanUp state conn = do
-      (n, s) <- liftIO $ readMVar state
-      liftIO $ DB.insertMovies s conn
+      (n, vs) <- liftIO $ readMVar state
+      DB.insertMovies vs conn
       logStickyDone "" $
-        "Updated " <> toLogStr (n + Seq.length s) <> " Movie records"
+        "Updated " <> toLogStr (n + Seq.length vs) <> " Movie records"
     -- | Source Conduit for Movie Ids.
     sourceC conn status upd_thresold = do
       td <- liftIO $ utctDay <$> getCurrentTime

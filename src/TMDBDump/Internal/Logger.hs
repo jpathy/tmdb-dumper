@@ -74,8 +74,8 @@ runWithOptionsLoggingT options lma =
              (\var ->
                 run $
                 runLoggingT lma $ stickyImpl var options (simpleLogFunc options))
-    else (runLoggingT lma $ \loc src lvl msg ->
-            simpleLogFunc options loc src (noSticky lvl) msg)
+    else runLoggingT lma $ \loc src lvl msg ->
+           simpleLogFunc options loc src (noSticky lvl) msg
 
 runHLoggingT :: MonadUnliftIO m => Handle -> LogLevel -> Bool -> LoggingT m a -> m a
 runHLoggingT handle minLevel noTerm lma = do
@@ -93,10 +93,10 @@ runStderrLoggingT :: MonadUnliftIO m => LogLevel -> Bool -> LoggingT m a -> m a
 runStderrLoggingT = runHLoggingT stderr
 
 logSticky :: (MonadLogger m, ToLogStr msg) => LogSource -> msg -> m ()
-logSticky src msg = monadLoggerLog defaultLoc src (LevelOther "sticky") msg
+logSticky src = monadLoggerLog defaultLoc src (LevelOther "sticky")
 
 logStickyDone :: (MonadLogger m, ToLogStr msg) => LogSource -> msg -> m ()
-logStickyDone src msg = monadLoggerLog defaultLoc src (LevelOther "sticky-done") msg
+logStickyDone src = monadLoggerLog defaultLoc src (LevelOther "sticky-done")
 
 logStickyN :: MonadLogger m => T.Text -> m ()
 logStickyN = logSticky ""
@@ -115,7 +115,8 @@ simpleLogFunc lo loc src level msg =
     timestamp <- getTimestamp
     logSend lo $
       fromLogStr $
-      timestamp <> getLevelSrc <> ansi reset <> msg <> getLoc <> ansi reset <> "\n"
+      timestamp <> getLevelSrc <> ansi reset <> msg <> getLoc <> ansi reset <>
+      "\n"
   where
     reset = "\ESC[0m"
     setBlack = "\ESC[90m"
@@ -140,19 +141,25 @@ simpleLogFunc lo loc src level msg =
     getLevelSrc :: LogStr
     getLevelSrc =
       (case level of
-        LevelDebug      -> ansi setGreen <> "[debug"
-        LevelInfo       -> ansi setBlue <> "[info"
-        LevelWarn       -> ansi setYellow <> "[warn"
-        LevelError      -> ansi setRed <> "[error"
-        LevelOther name -> ansi setMagenta <> "[" <> toLogStr name
-       ) <> (if T.null src
-              then mempty
-              else "#" <> toLogStr src) <> "] "
+         LevelDebug      -> ansi setGreen <> "[debug"
+         LevelInfo       -> ansi setBlue <> "[info"
+         LevelWarn       -> ansi setYellow <> "[warn"
+         LevelError      -> ansi setRed <> "[error"
+         LevelOther name -> ansi setMagenta <> "[" <> toLogStr name) <>
+      (if T.null src
+         then mempty
+         else "#" <> toLogStr src) <>
+      "] "
     getLoc :: LogStr
-    getLoc = if (loc == defaultLoc) then mempty else ansi setBlack <> "\n@(" <> toLogStr (S8.pack fileLocStr) <> ")"
-    -- taken from file-location package turn the TH Loc loaction information
-    -- into a human readable string leaving out the loc_end parameter
-    fileLocStr = (loc_package loc) ++ ':' : (loc_module loc) ++
+    getLoc =
+      if loc == defaultLoc
+        then mempty
+        else ansi setBlack <> "\n@(" <> toLogStr (S8.pack fileLocStr) <> ")"
+    -- Taken from file-location package turn the TH Loc loaction information into a human readable string leaving out the loc_end parameter.
+    fileLocStr =
+      (loc_package loc) ++
+      ':' :
+      (loc_module loc) ++
       ' ' : (loc_filename loc) ++ ':' : (line loc) ++ ':' : (char loc)
       where
         line = show . fst . loc_start

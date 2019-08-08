@@ -178,7 +178,7 @@ rateLimitedhttpLbs settings manager req = do
         [ Handler $ \(_ :: HC.HttpException) ->
             retryRequest (minRetryDelay settings) count
         , Handler $ \(e :: IOException) ->
-            if (ioe_type e) == ResourceVanished
+            if ioe_type e == ResourceVanished
               then retryRequest (minRetryDelay settings) count
               else throwM e
         ]
@@ -294,8 +294,8 @@ fetchMovieChangesC range = do
       "movie/changes"
       [("start_date", start), ("end_date", end)]
   logWithoutLoc "" LevelDebug $
-    "Fetching Movie Changes " <> (maybe mempty (\d -> "from " <> d) start) <>
-    (maybe mempty (\d -> " to " <> d) end) <>
+    "Fetching Movie Changes " <> (maybe mempty ("from " <>) start) <>
+    (maybe mempty (" to " <>) end) <>
     ".."
   resp <- rateLimitedhttpLbsM req
   if statusIsSuccessful $ HC.responseStatus resp
@@ -318,7 +318,7 @@ fetchMoviesC ::
      , Has ApiKey env
      )
   => Int -- ^ Max number of concurrent requests.
-  -> ConduitT Id LB.ByteString m ()
+  -> ConduitT Id (Id, LB.ByteString) m ()
 fetchMoviesC conc_limit = do
   manager <- asks getter
   settings <- asks getter
@@ -344,15 +344,29 @@ fetchMoviesC conc_limit = do
         (either
            (throwTo me)
            (\v -> do
-               logFunc defaultLoc "" LevelDebug ("Fetched Movie Id: " <> toLogStr m_id)
-               atomically (writeTBQueue out v)
-               signalQSem sem))
+              case v of
+                Nothing ->
+                  logFunc
+                    defaultLoc
+                    ""
+                    LevelWarn
+                    ("Failed to fetch movie id: " <> toLogStr m_id <>
+                     ", Not found.")
+                Just v' ->
+                  logFunc
+                    defaultLoc
+                    ""
+                    LevelDebug
+                    ("Fetched Movie Id: " <> toLogStr m_id) >>
+                  -- Write (id, response) to queue.
+                  atomically (writeTBQueue out (m_id, v'))
+              -- Release QSem either way.
+              signalQSem sem))
     yieldTBQueue out
   liftIO $ replicateM_ conc_limit (waitQSem sem) -- Wait for all running threads to terminate.
   yieldTBQueue out -- yield their results.
   where
-    yieldTBQueue q =
-      liftIO (atomically (flushTBQueue q)) >>= mapM_ (maybe (return ()) yield)
+    yieldTBQueue q = liftIO (atomically (flushTBQueue q)) >>= mapM_ yield
     doOne (manager, api_key, settings) m_id queries = do
       req <- mkApiRequest api_key ("movie/" ++ show m_id) queries
       resp <- rateLimitedhttpLbs settings manager req
