@@ -1,7 +1,8 @@
-{-# LANGUAGE BangPatterns     #-}
-{-# LANGUAGE DeriveGeneric    #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- | TMDB API calls.
 module TMDBDump.Internal.Api
   ( Id
@@ -48,6 +49,8 @@ import           Data.Time.Clock.POSIX       (POSIXTime, getCurrentTime,
 import           Data.Time.Format
 import           Data.Tuple.Extra            (both)
 import           GHC.Generics
+import           GHC.IO.Exception            (IOErrorType (..),
+                                              IOException (..))
 import qualified Network.HTTP.Client         as HC
 import qualified Network.HTTP.Client.Conduit as HCC
 import           Network.HTTP.Types
@@ -170,7 +173,15 @@ rateLimitedhttpLbs settings manager req = do
         fetchResponse (maxRetries settings)
   where
     fetchResponse !count = do
-      resp <- HC.httpLbs req manager
+      resp <-
+        HC.httpLbs req manager `catches`
+        [ Handler $ \(_ :: HC.HttpException) ->
+            retryRequest (minRetryDelay settings) count
+        , Handler $ \(e :: IOException) ->
+            if (ioe_type e) == ResourceVanished
+              then retryRequest (minRetryDelay settings) count
+              else throwM e
+        ]
       let status = HC.responseStatus resp
       if status == toEnum 429
         then do
@@ -181,15 +192,18 @@ rateLimitedhttpLbs settings manager req = do
           atomicModifyIORef'
             globalRateLimit
             (\x -> (updateRateLimit x (Just $ RateLimit 0 (now + retry_in)), ()))
-          (threadDelay . round . (* 1E6)) retry_in
-          if count > 0
-            then fetchResponse (count - 1)
-            else throwM $ APIException req APIRetryOverLimit
+          retryRequest retry_in count
         else do
           atomicModifyIORef'
             globalRateLimit
             (\x -> (updateRateLimit x $ getRateLimit resp, ()))
           return resp
+    -- Retry request.
+    retryRequest delay remaining = do
+      (threadDelay . round . (* 1E6)) delay
+      if remaining > 0
+        then fetchResponse (remaining - 1)
+        else throwM $ APIException req APIRetryOverLimit
     -- This is number of microseconds.
     requestDelay :: Integral a => RateLimit -> POSIXTime -> Maybe a
     requestDelay (RateLimit r t) now =
