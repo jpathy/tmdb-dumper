@@ -1,7 +1,7 @@
 resolver: lts-13.28
 packages:
 - .
-  #flags:
-  #  direct-sqlite:
-  #    systemlib: true
+flags:
+  direct-sqlite:
+    systemlib: true
 extra-deps:
