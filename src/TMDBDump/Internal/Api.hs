@@ -232,25 +232,9 @@ rateLimitedhttpLbs settings manager req = do
     parseHeader :: (Num c) => C.ByteString -> Maybe c
     parseHeader = fmap fromInteger . readMaybe . C.unpack
 
-httpSource'
-  :: (MonadResource m, MonadIO n, MonadReader env m, Has HC.Manager env)
-  => HC.Request
-  -> (HC.Response (ConduitT () C.ByteString n ()) -> ConduitT () r m ())
-  -> ConduitT () r m ()
-httpSource' request withRes = do
-  env <- ask
-  bracketP
-    (runReaderT (responseOpen request) env)
-    HCC.responseClose
-    withRes
-  where
-    responseOpen req = do
-      env <- asks getter
-      liftIO $ fmap HCC.bodyReaderSource `fmap` HC.responseOpen req env
-
 -- | Fetch yesterday's daily export for Movie Ids. See: <https://developers.themoviedb.org/3/getting-started/daily-file-exports>.
 fetchYdayMovieIdsC ::
-     (MonadLogger m, MonadResource m, MonadReader env m, Has HC.Manager env)
+     (MonadLoggerIO m, MonadReader env m, Has HC.Manager env)
   => ConduitT () Id m ()
 fetchYdayMovieIdsC = getFileStream .| transPipe liftIO ungzip .| parseIdC
   where
@@ -263,10 +247,11 @@ fetchYdayMovieIdsC = getFileStream .| transPipe liftIO ungzip .| parseIdC
       req <- liftIO $ HC.parseRequest (tmdbExportURL ++ path)
       logWithoutLoc "" LevelDebug $
         "Getting Movie ids from: " <> show (HC.getUri req)
-      httpSource' req $ \resp ->
-        if statusIsSuccessful (HC.responseStatus resp)
-          then HC.responseBody resp
-          else liftIO $ throwIO $ APIException req (APIError Nothing)
+      manager <- asks getter
+      resp <- liftIO $ HC.httpLbs req manager
+      if statusIsSuccessful (HC.responseStatus resp)
+        then sourceLazy $ HC.responseBody resp
+        else liftIO $ throwIO $ APIException req (APIError Nothing)
     parseIdC = peekForeverE (lineAsciiC (concatMapC getId))
     getId :: C.ByteString -> Maybe Id
     getId bs = do
