@@ -20,8 +20,9 @@ import qualified Data.Text               as T
 import           Data.Time.Calendar      (Day (..))
 import           Data.Time.Clock         (UTCTime (..), getCurrentTime)
 import           Data.Time.Format        (defaultTimeLocale, formatTime)
-import           System.IO               (Handle, hIsTerminalDevice, stderr,
-                                          stdout)
+import           System.IO               (BufferMode (..), Handle,
+                                          hIsTerminalDevice, hSetBuffering,
+                                          stderr, stdout)
 import           System.Log.FastLogger   (fromLogStr)
 
 data LogOptions = LogOptions
@@ -80,6 +81,7 @@ runWithOptionsLoggingT options lma =
 runHLoggingT :: MonadUnliftIO m => Handle -> LogLevel -> Bool -> LoggingT m a -> m a
 runHLoggingT handle minLevel noTerm lma = do
   options <- logOptionsHandle handle
+  liftIO $ hSetBuffering handle LineBuffering -- so logs update live even with redirection.
   flip runWithOptionsLoggingT lma $
     (if noTerm
        then setLogNoTerminal
