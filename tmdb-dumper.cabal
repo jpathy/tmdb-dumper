@@ -1,5 +1,5 @@
 name:                tmdb-dumper
-version:             0.1.1
+version:             0.1.2
 synopsis:            Tool to dump TMDB data into a database
 description:
   See https://github.com/jpathy/tmdb-dumper#readme.
