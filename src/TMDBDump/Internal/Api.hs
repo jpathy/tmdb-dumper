@@ -303,7 +303,7 @@ fetchMoviesC ::
      , Has ApiKey env
      )
   => Int -- ^ Max number of concurrent requests.
-  -> ConduitT Id (Id, LB.ByteString) m ()
+  -> ConduitT Id (Id, Maybe LB.ByteString) m ()
 fetchMoviesC conc_limit = do
   manager <- asks getter
   settings <- asks getter
@@ -329,22 +329,13 @@ fetchMoviesC conc_limit = do
         (either
            (throwTo me)
            (\v -> do
-              case v of
-                Nothing ->
-                  logFunc
-                    defaultLoc
-                    ""
-                    LevelWarn
-                    ("Failed to fetch movie id: " <> toLogStr m_id <>
-                     ", Not found.")
-                Just v' ->
-                  logFunc
-                    defaultLoc
-                    ""
-                    LevelDebug
-                    ("Fetched Movie Id: " <> toLogStr m_id) >>
-                  -- Write (id, response) to queue.
-                  atomically (writeTBQueue out (m_id, v'))
+              logFunc defaultLoc "" LevelDebug $
+                if (v == Nothing)
+                  then ("Failed to fetch movie id: " <> toLogStr m_id <>
+                        ", Not found.")
+                  else ("Fetched Movie Id: " <> toLogStr m_id)
+              -- Write (id, response) to queue. response == Nothing => m_id deleted.
+              atomically (writeTBQueue out (m_id, v))
               -- Release QSem either way.
               signalQSem sem))
     yieldTBQueue out

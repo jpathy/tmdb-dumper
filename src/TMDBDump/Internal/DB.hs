@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module TMDBDump.Internal.DB
   ( DBVersion(..)
   , currentDBVersion
@@ -13,13 +14,14 @@ module TMDBDump.Internal.DB
   , updateMovies
   ) where
 
+import           Control.Exception.Safe
 import           Control.Monad           (when)
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Data.Aeson
 import           Data.Aeson.Text         (encodeToLazyText)
 import qualified Data.ByteString.Lazy    as LB
-import           Data.Either.Extra       (eitherToMaybe)
+import           Data.Either.Extra       (mapLeft)
 import           Data.Foldable           (forM_)
 import           Data.Maybe              (isNothing)
 import qualified Data.Text               as T
@@ -154,15 +156,16 @@ hasMovie m_id conn = do
 -- | Insert/update movie records in DB by parsing the response bodies.
 insertMovies ::
      (MonadLoggerIO m, Traversable t)
-  => t (Int, LB.ByteString)
+  => t (Int, Maybe LB.ByteString)
   -> Connection
   -> m ()
 insertMovies inp conn = do
-  let res = -- map ByteString to Maybe (Movie, ByteString)
-        (fmap . fmap)
+  let res -- map ByteString to Either String (Movie, ByteString)
+       =
+        (fmap . fmap . fmap)
           (\s ->
-             (,) <$> decode' s <*>
-             (eitherToMaybe . TE.decodeUtf8' . LB.toStrict) s)
+             (,) <$> eitherDecode' s <*>
+             (mapLeft show . TE.decodeUtf8' . LB.toStrict) s)
           inp
   logFn <- askLoggerIO
   liftIO $
@@ -171,14 +174,26 @@ insertMovies inp conn = do
       res
       (\(m_id, v) ->
          case v of
-           Nothing ->
+           Nothing -- Delete the entry if not found.
+            -> do
              logFn
                defaultLoc
                ""
-               LevelWarn
-               ("Failed to decode response for movie id: " <> toLogStr m_id)
-           Just v' -> uncurry insert v')
+               LevelInfo
+               ("Deleting movie id: " <> toLogStr m_id)
+             delete m_id
+           Just (Left e) ->
+             logFn
+               defaultLoc
+               ""
+               LevelError
+               ("Failed to decode response for movie id: " <> toLogStr m_id <>
+                ".Error: " <> toLogStr e)
+           Just (Right v') -> uncurry insert v')
   where
+    delete :: Int -> IO ()
+    delete m_id =
+      execute conn "DELETE FROM movies WHERE tmdb_id = ?" (Only m_id)
     insert :: Movie -> T.Text -> IO ()
     insert m json_response =
       executeNamed

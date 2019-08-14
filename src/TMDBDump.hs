@@ -131,6 +131,8 @@ getDBInfo = do
 updateMovies :: Bool -> TMDBDumper ()
 updateMovies force = do
   (conn, manager, settings) <- ask
+  -- Initialize DB.
+  liftIO $ DB.initDB conn
   flip runReaderT (manager, rateLimitSettings settings, apiKey settings) $ do
     logInfoN "Updating Movie genres.."
     fetchMovieGenres >>= mapM_ (liftIO . (`DB.updateMovieGenres` conn)) -- Update movie genres.
