@@ -50,15 +50,24 @@ getDBVersion conn = do
   [Only x] <- query_ conn "PRAGMA user_version"
   return $ versionFromInt x
 
+-- | Maximum Busy timeout in milliseconds for sqlite DB. See: https://www.sqlite.org/c3ref/busy_timeout.html.
+-- | We set this to avoid SQLITE_BUSY while info operation takes place.
+maxBusyTimeout :: Int
+maxBusyTimeout = 10000
+
 -- | Intialize database with tables/convert from an old version.
 initDB :: Connection -> IO ()
 initDB conn = do
+  -- We set a busy timeout for all connections.
+  execute_ conn $
+    Query $
+    T.pack $ "PRAGMA busy_timeout=" ++ show (maxBusyTimeout)
   ver <- getDBVersion conn
   when (isNothing ver) $ do
     execute_ conn "DROP TABLE IF EXISTS '.metadata'"
     execute_ conn "DROP TABLE IF EXISTS movie_genres"
     execute_ conn "DROP TABLE IF EXISTS movies"
-  when (isNothing ver) initCurrent
+  when (isNothing ver) initCurrent -- For future versions we may want to convert the DB here.
   where
     initCurrent = do
       execute_
@@ -204,8 +213,13 @@ data DBInfo = DBInfo
 
 -- | Get DBInfo.
 getDBInfo :: Connection -> IO DBInfo
-getDBInfo conn = do
-  ver <- getDBVersion conn
-  mu <- getLastMovieUpdate conn
-  [Only mc] <- query_ conn "SELECT COUNT(*) FROM movies"
-  return $ DBInfo ver mu mc
+getDBInfo conn =
+  handle
+    (\(e :: SQLError) ->
+       case (sqlError e) of
+         ErrorError -> error "Not a valid database."
+         _          -> throwIO e) $ do
+    ver <- getDBVersion conn
+    mu <- getLastMovieUpdate conn
+    [Only mc] <- query_ conn "SELECT COUNT(*) FROM movies"
+    return $ DBInfo ver mu mc
