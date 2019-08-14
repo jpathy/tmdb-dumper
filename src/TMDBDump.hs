@@ -92,7 +92,7 @@ tmdbChangesRequestDiff = 14
 -- | Result type for actions. See 'runTMDBDumper'.
 newtype TMDBDumper a =
   TMDBDumper
-    { getDumper :: ReaderT (Connection, Manager, Settings) (LoggingT (ResourceT IO)) a
+    { getDumper :: ReaderT (Connection, Manager, Settings) (LoggingT IO) a
     }
   deriving ( Functor
            , Applicative
@@ -101,7 +101,6 @@ newtype TMDBDumper a =
            , MonadThrow
            , MonadCatch
            , MonadMask
-           , MonadResource
            , MonadLogger
            , MonadLoggerIO
            , MonadReader (Connection, Manager, Settings)
@@ -116,10 +115,8 @@ runTMDBDumper :: Settings     -- ^ Dumper settings.
               -> IO a         -- ^ Result. __May throw exceptions__.
 runTMDBDumper settings action = do
   manager <- liftIO $ newTlsManagerWith (httpManagerSettings settings)
-  bracket (open (dbPath settings)) close $ \conn -> do
-    DB.initDB conn
-    runResourceT $
-      runStdoutLoggingT
+  bracket (open (dbPath settings)) close $ \conn ->
+    runStdoutLoggingT
         (toLogLevel $ logVerbosity settings)
         (logNoTerminal settings) $
       flip runReaderT (conn, manager, settings) $ getDumper action
